@@ -1,0 +1,90 @@
+//@version=4
+strategy(title="EMA3489 + Doji + RSI Strategy", shorttitle="EMA3489 + Doji + RSI Strategy", overlay=true, close_entries_rule="ANY", pyramiding=0, initial_capital = 1000, default_qty_type=strategy.cash, default_qty_value=10000, currency=currency.USD)//,commission_type=strategy.commission.cash_per_order,commission_value=0.04)
+
+//strategy start date
+startDate = input(title="Start Date", type=input.integer, defval=1, minval=1, maxval=31)
+startMonth = input(title="Start Month", type=input.integer, defval=1, minval=1, maxval=12)
+startYear = input(title="Start Year", type=input.integer, defval=2020, minval=2018, maxval=2100)
+
+endDate = input(title="End Date", type=input.integer, defval=1, minval=1, maxval=31)
+endMonth = input(title="End Month", type=input.integer, defval=12, minval=12, maxval=12)
+endYear = input(title="End Year", type=input.integer, defval=2021, minval=2020, maxval=2100)
+
+// Look if the close time of the current bar
+// falls inside the date range
+inDateRange = (time >= timestamp(syminfo.timezone, startYear,startMonth, startDate, 0, 0)) and (time < timestamp(syminfo.timezone, endYear, endMonth, endDate, 0, 0))
+
+//Moving Averages
+maFastSource   = input(defval = close, title = "Fast EMA Source")
+maFastLength   = input(defval = 34, title = "Fast EMA Period", minval = 1)
+// long ma
+maSlowSource   = input(defval = close, title = "Slow EMA Source")
+maSlowLength   = input(defval = 89, title = "Slow EMA Period", minval = 1)
+
+maFast = ema(maFastSource, maFastLength)
+maSlow = ema(maSlowSource, maSlowLength)
+
+//rsi
+rsiSource = input(title="RSI Source", type=input.source, defval=close)
+rsiLength = input(title="RSI Length", type=input.integer, defval=14)
+rsiValue = round(rsi(rsiSource, rsiLength),2)
+rsiOverbought = input(title="RSI Overbought Level", type=input.integer, defval=70)
+rsiOversold = input(title="RSI Oversold Level", type=input.integer, defval=30)
+
+// On the last price bar, make a new trend line
+HOO=input(defval=0.12,type=input.float,title="(H-L)/O")
+p1v=input(defval=3.5,type=input.float,title="(H-L)/(C-O)")
+p3v=input(defval=3.5,type=input.float,title="(H-L)/(H-O) or (H-L)/(O-L)")
+ema1=input(defval=0.1,type=input.float,title="C - FastEMA")
+ema2=input(defval=0.1,type=input.float,title="C - SlowEMA")
+
+p2=(high-low)/open>HOO/100
+
+p1_buy=abs((high-low)/(close-open))>p1v
+p1_sell=abs((high-low)/(close-open))>p1v
+
+p3_buy=(high-low)/(high-open)>p3v
+p3_sell=(high-low)/(open-low)>p3v
+
+emafar_buy = (maFast-close)/open>ema1/100 or (maSlow-close)/open>ema2/100
+emafar_sell = (close-maFast)/open>ema1/100 or (close-maSlow)/open>ema2/100
+
+rsiob=rsiValue>rsiOverbought
+rsios=rsiValue<rsiOversold
+
+//Conditions
+
+openlong = p1_buy and p3_buy and p2 and emafar_buy and rsios
+openshort= p1_sell and p3_sell and p2 and emafar_sell and rsiob
+
+//follow EMA
+SL_long= abs(low)
+TP_long= close+2*abs(close-low)
+//syminfo.mintick
+SL_short= abs(high)
+TP_short= close - 2*abs(high-close)
+if (inDateRange)
+    strategy.entry("Long", strategy.long, when = openlong)
+    cl=valuewhen(openlong, close, 0)
+    ll=valuewhen(openlong, low, 0)
+    strategy.exit("long exit", from_entry="Long", profit=2*abs(cl-ll)/syminfo.mintick,loss=abs(cl-ll)/syminfo.mintick,comment="SLTP LONG")
+        
+    strategy.entry("Short", strategy.short, when = openshort)
+    cl2=valuewhen(openshort, close, 0)
+    hl=valuewhen(openshort, high, 0)
+    strategy.exit("short exit", from_entry="Short", profit=2*abs(cl2-hl)/syminfo.mintick,loss=abs(cl2-hl)/syminfo.mintick,comment="SLTP SHORT")
+if (not inDateRange)
+    strategy.close_all()
+
+//plot
+plot(maFast, title="maFast", color=color.yellow, linewidth=2)
+plot(maSlow, title="maSlow", color=color.green, linewidth=3)
+
+if (openlong)
+    label.new(x=bar_index, y=close-(high[1]-low[1])*2,
+      color=color.green, textcolor=color.white,style=label.style_label_up,
+      text="BUY: " + tostring(close) + " - RSI: "+tostring(rsiValue) + "\nTP: " +tostring(TP_long)+" - "+tostring(abs(TP_long-close)/syminfo.mintick)+"\nSL: "+tostring(SL_long)+" - "+tostring(abs(SL_long-close)/syminfo.mintick))
+if (openshort)
+    label.new(x=bar_index, y=close+(high[1]-low[1])*2,
+      color=color.red, textcolor=color.white,
+      text="SELL: " + tostring(close) + " - RSI: "+tostring(rsiValue) + "\nTP: " +tostring(TP_short)+" - "+tostring(abs(close-TP_short)/syminfo.mintick)+"\nSL: "+tostring(SL_short)+" - "+tostring(abs(SL_short-close)/syminfo.mintick))
